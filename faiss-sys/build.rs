@@ -41,6 +41,20 @@ fn static_link_faiss() {
         println!("cargo:rustc-link-lib=gomp");
     } else {
         println!("cargo:rustc-link-lib=omp");
+
+        // export CPPFLAGS="-I/opt/homebrew/opt/libomp/include"
+        // export CFLAGS="-I/opt/homebrew/opt/libomp/include -Xpreprocessor -fopenmp"
+        // export CXXFLAGS="-I/opt/homebrew/opt/libomp/include -Xpreprocessor -fopenmp"
+        // export LDFLAGS="-L/opt/homebrew/opt/libomp/lib -lomp"
+
+        // -DCMAKE_C_FLAGS="$CFLAGS" \
+        // -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
+        // -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" \
+        // -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" \
+        cfg.define("CMAKE_C_FLAGS", env::var("CFLAGS").unwrap());
+        cfg.define("CMAKE_CXX_FLAGS", env::var("CXXFLAGS").unwrap());
+        cfg.define("CMAKE_EXE_LINKER_FLAGS", env::var("LDFLAGS").unwrap());
+        cfg.define("CMAKE_SHARED_LINKER_FLAGS", env::var("LDFLAGS").unwrap());
     }
     println!("cargo:rustc-link-lib=blas");
     println!("cargo:rustc-link-lib=lapack");
