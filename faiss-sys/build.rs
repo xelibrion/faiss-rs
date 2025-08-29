@@ -22,9 +22,36 @@ fn static_link_faiss() {
         .define("FAISS_ENABLE_PYTHON", "OFF")
         .define("BUILD_TESTING", "OFF")
         .very_verbose(true);
+
+    // Handle OpenMP configuration before building
+    if target.contains("apple") {
+        // Set up OpenMP paths for macOS
+        let homebrew_prefix = env::var("HOMEBREW_PREFIX")
+            .or_else(|_| env::var("HOMEBREW_CELLAR").map(|p| p.replace("/Cellar", "")))
+            .unwrap_or_else(|_| "/opt/homebrew".to_string());
+
+        let libomp_path = format!("{}/opt/libomp", homebrew_prefix);
+
+        // Set CMAKE flags for OpenMP
+        let cflags = format!("-I{}/include -Xpreprocessor -fopenmp", libomp_path);
+        let cxxflags = format!("-I{}/include -Xpreprocessor -fopenmp", libomp_path);
+        let ldflags = format!("-L{}/lib -lomp", libomp_path);
+
+        cfg.define("CMAKE_C_FLAGS", &cflags)
+            .define("CMAKE_CXX_FLAGS", &cxxflags)
+            .define("CMAKE_EXE_LINKER_FLAGS", &ldflags)
+            .define("CMAKE_SHARED_LINKER_FLAGS", &ldflags);
+
+        // Also set as environment variables for cmake to pick up
+        env::set_var("CFLAGS", &cflags);
+        env::set_var("CXXFLAGS", &cxxflags);
+        env::set_var("LDFLAGS", &ldflags);
+    }
+
     let dst = cfg.build();
     let faiss_location = dst.join("lib");
     let faiss_c_location = dst.join("build/c_api");
+
     println!(
         "cargo:rustc-link-search=native={}",
         faiss_location.display()
@@ -35,29 +62,28 @@ fn static_link_faiss() {
     );
     println!("cargo:rustc-link-lib=static=faiss_c");
     println!("cargo:rustc-link-lib=static=faiss");
+
     link_cxx();
 
+    // Link OpenMP library
     if !target.contains("msvc") && !target.contains("apple") {
         println!("cargo:rustc-link-lib=gomp");
-    } else {
+    } else if target.contains("apple") {
+        // For macOS, we need to link both the library and specify the path
+        let homebrew_prefix = env::var("HOMEBREW_PREFIX")
+            .or_else(|_| env::var("HOMEBREW_CELLAR").map(|p| p.replace("/Cellar", "")))
+            .unwrap_or_else(|_| "/opt/homebrew".to_string());
+
+        println!(
+            "cargo:rustc-link-search=native={}/opt/libomp/lib",
+            homebrew_prefix
+        );
         println!("cargo:rustc-link-lib=omp");
-
-        // export CPPFLAGS="-I/opt/homebrew/opt/libomp/include"
-        // export CFLAGS="-I/opt/homebrew/opt/libomp/include -Xpreprocessor -fopenmp"
-        // export CXXFLAGS="-I/opt/homebrew/opt/libomp/include -Xpreprocessor -fopenmp"
-        // export LDFLAGS="-L/opt/homebrew/opt/libomp/lib -lomp"
-
-        // -DCMAKE_C_FLAGS="$CFLAGS" \
-        // -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
-        // -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" \
-        // -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" \
-        cfg.define("CMAKE_C_FLAGS", env::var("CFLAGS").unwrap());
-        cfg.define("CMAKE_CXX_FLAGS", env::var("CXXFLAGS").unwrap());
-        cfg.define("CMAKE_EXE_LINKER_FLAGS", env::var("LDFLAGS").unwrap());
-        cfg.define("CMAKE_SHARED_LINKER_FLAGS", env::var("LDFLAGS").unwrap());
     }
+
     println!("cargo:rustc-link-lib=blas");
     println!("cargo:rustc-link-lib=lapack");
+
     if cfg!(feature = "gpu") {
         let cuda_path = cuda_lib_path();
         println!("cargo:rustc-link-search=native={}/lib64", cuda_path);
